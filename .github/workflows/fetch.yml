@@ -1,0 +1,43 @@
+name: fetch media
+# מוריד קבצים מכתובות זמניות (למשל תמונות מ Canva) ושומר אותם בריפו בכתובת קבועה
+on:
+  workflow_dispatch:
+    inputs:
+      files:
+        description: 'JSON: {"2026-10-25/c7_1.jpg": "https://..."}'
+        required: true
+permissions:
+  contents: write
+jobs:
+  fetch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: download
+        env:
+          FILES: ${{ inputs.files }}
+        run: |
+          python3 - <<'PY'
+          import json, os, urllib.request, pathlib
+          ok, bad = [], []
+          for path, url in json.loads(os.environ["FILES"]).items():
+              p = pathlib.Path(path)
+              if ".." in p.parts or p.is_absolute():
+                  bad.append(f"{path}: נתיב לא חוקי"); continue
+              try:
+                  data = urllib.request.urlopen(urllib.request.Request(url, headers={"User-Agent": "Mozilla/5.0"}), timeout=60).read()
+                  p.parent.mkdir(parents=True, exist_ok=True)
+                  p.write_bytes(data)
+                  ok.append(f"{path}: {len(data)} bytes")
+              except Exception as e:
+                  bad.append(f"{path}: {e}")
+          print("::notice title=fetch::" + "%0A".join(ok + bad))
+          if bad:
+              print("::error title=fetch failed::" + "%0A".join(bad))
+          PY
+      - name: commit
+        run: |
+          git config user.name "netiv-bot"
+          git config user.email "netiv-bot@users.noreply.github.com"
+          git add -A
+          git diff --cached --quiet || (git commit -m "media fetch" && git push)
